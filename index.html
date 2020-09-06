@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Create a palette(.aco) from image locally (ISN'T UPLOADED)</title>
+    <meta charset="utf-8">
+    <script src="clusterfck.js"></script>
+    <script>
+        const $ = document.querySelector.bind(document);
+        var canvas;
+        var colors;
+        var clusters;
+        var colorsDivElements;
+
+        function getPromiseForImage(img, path) {
+            return new Promise((resolve, reject) => {
+                img.onload = () => resolve(img);
+                img.onerror = (e) => reject(e);
+                img.src = path;
+            });
+        }
+
+        function getPromiseForReader(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(i);
+                reader.onerror = (e) => reject(e);
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function loadImageAsync(img, path) {
+            const image = await getPromiseForImage(img, path).catch(e => {
+                console.log('error', e);
+            });
+        }
+
+        async function loadFileAsync(file) {
+            const r = await getPromiseForReader(file).catch(e => {
+                console.log('error', e);
+            });
+        }
+
+        async function onChnage(e) {
+            let file = this.files[0];
+            let path = URL.createObjectURL(file);
+            let img = $("#preview");
+            await loadImageAsync(img, path);
+            canvas = createCanvas(img);
+            
+        }
+
+        function onClick(event) {
+            const colorListElement = $("#color_list");
+            while (colorListElement.firstChild) {
+                colorListElement.removeChild(colorListElement.lastChild);
+            }
+                        
+            if (canvas) {
+                colors = getColors(canvas, canvas.width, canvas.height);
+                
+                let e = $("#colors");
+                let s = parseInt(e.options[e.selectedIndex].value);
+                let c;
+                if (s == 0) {
+                    c = colors;
+                } else {
+                    clusters = clusterfck.kmeans(colors, s);
+                    let colorsFiltered = [];
+                    for (let i = 0; i < clusters.length; i++) {
+                        if (clusters.length <= 0) {
+                            break;
+                        }
+                        if (typeof clusters[i] !== 'undefined' && clusters[i].length > 0) {
+                            colorsFiltered.push(clusters[i][0]);
+                        }
+                    }
+                    c = colorsFiltered;
+                }
+
+                if (c.length <= 0) {
+                    onClickError("Failed.");
+                } else {
+                    let sorted = c.sort(function(a, b) {
+                        let hsvA = rgb2hsv(a[0], a[1], a[2]);
+                        let hsvB = rgb2hsv(b[0], b[1], b[2]);
+                        let meanA = (a[1] + a[2]) / 2;
+                        let meanB = (b[1] + b[2]) / 2;
+
+                        if (hsvA[0] === hsvB[0]) {
+                            if (meanA < meanB) {
+                                return -1;
+                            } else {
+                                return 1;
+                            }
+                        } else if (hsvA[0] < hsvB[0]) {
+                            return -1;
+                        } else {
+                            return 1;
+                        }
+                    });
+
+                    setDownload(c);
+
+                    for (let i = 0; i < c.length; i++) {
+                        let span = document.createElement("span");
+                        let color_style = (c[i][0] << 16) + (c[i][1] << 8) + c[i][2];
+                        color_style = color_style.toString(16)
+                        color_style = ("000000" +  color_style).substr(-6);
+                        // span.innerHTML = "";
+                        span.className = "color_rec blk";
+                        span.style.backgroundColor = "#" + color_style;
+                        colorListElement.appendChild(span);
+                    }
+                }
+            } else {
+                onClickError("You should do step 1.");
+            }
+        }
+
+        function onClickError(message) {
+            let = id = "create_message_inner";
+                let e = $("#" + id);
+                if (e) {
+                    e.remove();
+                }
+
+                let div = document.createElement("div");
+                div.innerHTML = message;
+                div.id = id;
+                $("#create_message").appendChild(div);
+
+                setTimeout(function() {
+                    let e = $("#" + id);
+                    if (e) {
+                        e.remove();
+                    }
+                }, 1000)
+        }
+
+        function createCanvas(img) {
+            let canvas = $('#preview_canvas');
+            let w =  (img.width < 256) ? img.width : 256;
+            let h = (img.height < 256) ? img.height : 256;
+            canvas.width = w;
+            canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+
+            // $("#preview_canvas").appendChild(canvas);
+
+            return canvas;
+        }
+
+        function getColors(canvas, width, height) {
+            const reference = [1.0, 0.0, 0.0];
+
+            const MAX_SIZE = 256; // (256 * 256 = 65536) <= (65536 aco's max. 16 bits)
+            const incX = parseInt(width / MAX_SIZE) + 1;
+            const incY = parseInt(height / MAX_SIZE) + 1;
+
+            let pixelData = canvas.getContext('2d').getImageData(0, 0, 1, 1).data;
+            let numOfColor = 0;
+            let dict = {};
+            for (let y = 0; y < height; y += incY) {
+                for (let x = 0; x < width; x += incX) {
+                    let rgba = canvas.getContext('2d').getImageData(x, y, 1, 1).data;
+                    let rgb = rgba[0] << 16 + rgba[1] << 8 + rgba[2];
+                    if (!(rgb in dict)) {
+                        dict[rgb] = rgba;
+                        numOfColor++;
+                        if (numOfColor >= 65536) {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            let a = [];
+            for (let i in dict) {
+                hsv = rgb2hsv(dict[i][0] / 255, dict[i][1] / 255, dict[i][2] / 255);
+                // a.push({ number: i, rgb: dict[i], hsv: hsv });
+                a.push(dict[i]);
+            }
+
+            return a;
+        }
+
+        // https://stackoverflow.com/questions/5320439/how-do-i-swap-endian-ness-byte-order-of-a-variable-in-javascript
+        function swap16(val) {
+            return ((val & 0xFF) << 8) | ((val >> 8) & 0xFF);
+        }
+
+        // https://stackoverflow.com/questions/8022885/rgb-to-hsv-color-in-javascript
+        // input: r,g,b in [0,1], out: h in [0,360) and s,v in [0,1]
+        function rgb2hsv(r, g, b) {
+            let v = Math.max(r, g, b), n = v - Math.min(r, g, b);
+            let h = n && ((v == r) ? (g - b) / n : ((v == g) ? 2 + (b - r) / n : 4 + (r - g) / n));
+            return [60 * (h < 0 ? h + 6 : h), v && n / v, v];
+        }
+
+        function setDownload(colors) {
+            var byteArray = createByteArray(colors);
+            var blob = new Blob([byteArray], { type: 'application/vnd-adobe-color' }); // I don't know a official MIME type.
+            var url = window.URL.createObjectURL(blob);
+            let e = $('#download');
+            e.href = url;
+            e.setAttribute('download', "colors.aco");
+            e.classList.remove("disabled");
+        }
+
+        function createByteArray(colors) {
+            const version = 1;
+            let numberOfColors = colors.length;
+            console.log(numberOfColors);
+            const colorSpaceRGB = 0;
+            let offset = 0;
+            let byteArray = new Uint16Array(2 + (numberOfColors * 5));//
+
+            byteArray[offset++] = swap16(version); // header(1)
+            byteArray[offset++] = swap16(numberOfColors); // header(2)
+
+            for (let i = 0; i < numberOfColors; i++) {
+                byteArray[offset++] = swap16(colorSpaceRGB);
+                byteArray[offset++] = colors[i][0]; //Don't swap. Becase range of value is 0 to 65535.
+                byteArray[offset++] = colors[i][1];
+                byteArray[offset++] = colors[i][2];
+                byteArray[offset++] = 0;
+            }
+            
+            // let debug = new Uint8Array(byteArray.buffer, byteArray.byteOffset, byteArray.byteLength);
+            return byteArray;
+        }
+        function onStart(e) {
+            $("#loader").addEventListener("change", onChnage);
+            $("#exetract").addEventListener("click", onClick);
+        }
+        this.addEventListener("load", onStart);
+        
+    </script>
+    <link rel="stylesheet" href="styles.css">
+
+<body>
+    <div id="content">
+        <div id="header">
+            <h1>Create a palette (.aco) file from your image</h1>
+        </div>
+
+        <div id="load" class="box">
+            <h2>1 Load your image file</h2>
+            <p class="lecture">Your file <span class="notice">isn't uploaded</span> to the server. All processing will be done locally (in your machine).<br>
+                If you are worried, you can disconnect internet or confirm the code after the page is loaded.<br>
+                The max size is 256px. If exceed the limit, the pixels will be scanned neither fully nor correctly.</p>
+                <div class="holder">
+                <input id="loader" type='file' />
+               <img id="preview">
+               <div><canvas id="preview_canvas" width="0" height="0"></canvas></div>
+            </div>
+        </div>
+
+        <div id="create" class="box">
+            <h2>2 Scan the image</h2>
+            <p class="lecture">Take some time. If you load a large image, brower will be freezed until done.<br>
+            </p>
+            
+            <div class="holder">
+                <label for="colors">The number of colors to extract:</label>
+                <select id="colors" name="colors">
+                <option value="0">All (&lt; 65,535)</option>
+                <option value="256">256</option>
+                <option value="128">128</option>
+                <option value="64">64</option>
+                <option value="32">32</option>
+                <option value="16">16</option>
+                <option value="8">8</option>
+                <option value="4">4</option>
+                </select>
+                <button type="button" id="exetract">Extract</button>
+                <div id="create_message" class="message"></div>
+                <div id="color_list"></div>
+            </div>
+        </div>
+
+        <div id="get" class="box">
+            <h2>3 Get the Colors</h2>
+            <p class="lecture">The file you will get is Adobe Color format.<br>
+            </p>
+            <div class="holder">
+                <a id="download" href="#" class="disabled">Download colors.aco file</a>
+            </div>
+        </div>
+
+        <div style="height: 50px;"></div>
+
+        <div id="comment" class="box">
+            <h2>Information</h2>
+            <p class="lecture">This page is made by using HTML with plain javascript. You can modify it easily.<br>
+                The source code is provided where my github. Link is here.<br>
+                Why I make this page is I will create pixel art. It needs to adjust a color palette.<br>
+                Example:<br>
+                <img src="example/anim_tr.gif">
+                <br>
+            </p>
+        </div>
+
+        <div id="acknowledgement"  class="box">
+            <h2>Thanks</h2>
+            <p class="lecture">I use 3rd party libraries. Thanks a lot.<br>
+            </p>
+            <ul style="margin-left: 20px;">
+                <li><a href="https://github.com/harthur/clustering/">Clusterfck (MIT Licence)</a></li>
+            </ul>
+            
+        </div>
+        <div style="height: 40px;"></div>
+    </div>
+
+    
+</body>
+
+</html>
