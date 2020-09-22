@@ -6,4 +6,6 @@
 
 ## Demonsration
 
+![GitHub Logo](assets/demo.gif)
+
 [The demo page](https://shikitari.github.io/palette_from_image/)
